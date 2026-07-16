@@ -44,6 +44,40 @@ def get_model_info() -> dict:
     }
 
 
+def evaluate_rules(transaction: dict, velocity: int) -> list:
+    """
+    Evaluate business rules for the transaction.
+    Returns a list of violation dictionaries.
+    """
+    violations = []
+    amount = float(transaction.get("amount", 0.0))
+    hour = int(transaction.get("hour", 0))
+
+    # Rule 1: High Transaction Amount Limit
+    if amount > 50000.0:
+        violations.append({
+            "rule_name": "High Value Transaction Limit",
+            "description": f"Transaction amount ₹{amount:,.2f} exceeds standard safety limit of ₹50,000.00."
+        })
+
+    # Rule 2: Night High Value Alert
+    is_night = (hour >= 0 and hour <= 6)
+    if is_night and amount > 10000.0:
+        violations.append({
+            "rule_name": "Night High Value Alert",
+            "description": f"High value transaction ₹{amount:,.2f} initiated during night hours (hour: {hour})."
+        })
+
+    # Rule 3: Velocity Threshold Exceeded
+    if velocity > 5:
+        violations.append({
+            "rule_name": "Velocity Threshold Exceeded",
+            "description": f"User transaction rate is high ({velocity} transactions in the last hour)."
+        })
+
+    return violations
+
+
 def predict_fraud(transaction: dict, user_profile: dict,
                   transaction_velocity: int = 1) -> dict:
     """
@@ -75,17 +109,29 @@ def predict_fraud(transaction: dict, user_profile: dict,
     proba = model.predict_proba(features_scaled)[0]
     fraud_probability = float(proba[1])  # Probability of class 1 (fraud)
 
-    # Step 5: Classify risk
-    risk_level = "HIGH RISK" if fraud_probability >= threshold else "LOW RISK"
+    # Step 4b: Compute local feature contributions (scaled_feature * coefficient)
+    coefs = model.coef_[0]
+    scaled_vector = features_scaled[0]
+    contributions = {col: float(val) for col, val in zip(FEATURE_COLUMNS, scaled_vector * coefs)}
+
+    # Step 4c: Evaluate hard rules
+    rule_violations = evaluate_rules(transaction, transaction_velocity)
+
+    # Step 5: Classify risk (HIGH RISK if probability exceeds threshold OR any business rules are violated)
+    has_rule_violations = len(rule_violations) > 0
+    is_high_risk_ml = fraud_probability >= threshold
+    risk_level = "HIGH RISK" if (is_high_risk_ml or has_rule_violations) else "LOW RISK"
 
     # Step 6: Generate explanation
-    explanation = generate_explanation(features, fraud_probability, threshold)
+    explanation = generate_explanation(features, fraud_probability, threshold, rule_violations)
 
     return {
         "fraud_probability": round(fraud_probability, 4),
         "risk_level": risk_level,
         "explanation": explanation,
         "features": features,
+        "contributions": contributions,
+        "rule_violations": rule_violations,
     }
 
 

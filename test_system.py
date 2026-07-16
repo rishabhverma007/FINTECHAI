@@ -185,6 +185,22 @@ def test_prediction():
     assert 0.0 <= result2["fraud_probability"] <= 1.0
     print(f"  Suspicious txn → Prob: {result2['fraud_probability']:.3f}, Risk: {result2['risk_level']}")
     print(f"  Explanation:\n{result2['explanation']}")
+    
+    # Assert contributions and rules
+    assert "contributions" in result2
+    assert len(result2["contributions"]) == 24
+    assert "rule_violations" in result2
+    assert len(result2["rule_violations"]) >= 2  # Velocity > 5 and Night Hours at hour=2
+    print("  ✅ Local feature contributions verified")
+    print("  ✅ Rule violations evaluated and caught")
+    
+    # Test specific rules
+    from src.fraud_prediction import evaluate_rules
+    violations_high_val = evaluate_rules({"amount": 60000.0, "hour": 12}, 1)
+    assert len(violations_high_val) == 1
+    assert violations_high_val[0]["rule_name"] == "High Value Transaction Limit"
+    print("  ✅ Business Rule: High Value Transaction Limit verified")
+    
     print("  ✅ Suspicious transaction predicted")
     print("  ✅ All prediction tests passed!\n")
     return True
@@ -231,11 +247,61 @@ def test_simulator():
     return True
 
 
+def test_background_simulator():
+    """Test background thread simulator."""
+    print("=" * 60)
+    print("TEST 5: Background Simulator")
+    print("=" * 60)
+
+    from src.database_manager import DatabaseManager
+    from src.simulator import BackgroundSimulator
+    import time
+
+    db = DatabaseManager(db_path="database/test_fraud.db")
+    db.clear_all_data()
+
+    assert not BackgroundSimulator.is_running()
+
+    # Start background simulator with 0.1s delay
+    success = BackgroundSimulator.start(db, delay=0.1, fraud_ratio=0.3)
+    assert success
+    assert BackgroundSimulator.is_running()
+    print("  ✅ Started background simulator")
+
+    # Let it run for a bit to generate some transactions
+    time.sleep(0.5)
+
+    # Stop background simulator
+    stopped = BackgroundSimulator.stop()
+    assert stopped
+
+    # Give a tiny buffer for thread to exit cleanly and verify it is not running
+    time.sleep(0.2)
+    assert not BackgroundSimulator.is_running()
+    print("  ✅ Stopped background simulator")
+
+    recent = db.get_recent_transactions(limit=50)
+    print(f"  Generated {len(recent)} transactions in background")
+    assert len(recent) > 0
+    print("  ✅ Transactions stored in database successfully")
+
+    db.clear_all_data()
+    print("  ✅ All background simulator tests passed!\n")
+    return True
+
+
 if __name__ == "__main__":
     print("\n🛡️  FINTECHAI — Automated System Tests\n")
 
     all_passed = True
-    for test in [test_database, test_feature_engineering, test_prediction, test_simulator]:
+    tests = [
+        test_database,
+        test_feature_engineering,
+        test_prediction,
+        test_simulator,
+        test_background_simulator
+    ]
+    for test in tests:
         try:
             if not test():
                 all_passed = False

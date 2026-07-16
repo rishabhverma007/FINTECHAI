@@ -7,6 +7,7 @@ Feeds through the full prediction pipeline and stores results in SQLite.
 import random
 import time
 import uuid
+import threading
 from datetime import datetime
 
 from src.database_manager import DatabaseManager
@@ -160,3 +161,65 @@ def run_simulator(db: DatabaseManager, num_transactions: int = 100,
         time.sleep(delay)
 
     return count
+
+
+class BackgroundSimulator:
+    """Manages transaction simulator in a background thread."""
+    _thread = None
+    _stop_event = threading.Event()
+    _running = False
+    _lock = threading.Lock()
+
+    @classmethod
+    def start(cls, db: DatabaseManager, delay: float = 0.5, fraud_ratio: float = 0.10) -> bool:
+        """Start the background simulator thread."""
+        with cls._lock:
+            if cls._running:
+                return False
+
+            cls._stop_event.clear()
+            cls._running = True
+
+            def run():
+                while not cls._stop_event.is_set():
+                    try:
+                        # Pick a random user
+                        user_seed = random.choice(USER_PROFILES_SEED)
+
+                        # Generate transaction
+                        txn = generate_normal_transaction(user_seed)
+
+                        # Inject fraud patterns randomly
+                        if random.random() < fraud_ratio:
+                            txn = inject_fraud_patterns(txn, user_seed)
+
+                        # Process through prediction and DB insertion
+                        process_transaction(db, txn)
+                    except Exception as e:
+                        print(f"Error in background simulation loop: {e}")
+
+                    # Wait for delay checking stop event
+                    cls._stop_event.wait(delay)
+
+                with cls._lock:
+                    cls._running = False
+
+            cls._thread = threading.Thread(target=run, daemon=True, name="FintechBackgroundSimulator")
+            cls._thread.start()
+            return True
+
+    @classmethod
+    def stop(cls) -> bool:
+        """Stop the background simulator thread."""
+        with cls._lock:
+            if not cls._running:
+                return False
+            cls._stop_event.set()
+            return True
+
+    @classmethod
+    def is_running(cls) -> bool:
+        """Check if the background simulator is running."""
+        with cls._lock:
+            return cls._running
+

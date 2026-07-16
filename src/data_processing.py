@@ -97,19 +97,27 @@ def build_feature_dataframe(features: dict) -> pd.DataFrame:
     return df
 
 
-def generate_explanation(features: dict, fraud_probability: float, threshold: float) -> str:
+def generate_explanation(features: dict, fraud_probability: float, threshold: float, rule_violations: list = None) -> str:
     """
     Generate human-readable explanation for a fraud prediction.
     Returns a multi-line explanation string.
     """
     explanations = []
 
-    if fraud_probability >= threshold:
+    has_rules = rule_violations is not None and len(rule_violations) > 0
+
+    if fraud_probability >= threshold or has_rules:
         explanations.append("🚨 HIGH RISK TRANSACTION DETECTED")
     else:
         explanations.append("✅ Transaction appears normal")
 
     explanations.append(f"   Fraud Probability: {fraud_probability:.1%}")
+
+    if has_rules:
+        explanations.append("   ⚠️ BUSINESS RULE VIOLATIONS:")
+        for violation in rule_violations:
+            explanations.append(f"     • {violation['rule_name']}: {violation['description']}")
+        explanations.append("")  # Empty line for spacing before ML flags
 
     # Check each behavioral flag
     if features.get("amount_deviation", 0) > 1.5:
