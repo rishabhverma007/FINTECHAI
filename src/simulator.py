@@ -109,6 +109,8 @@ def process_transaction(db: DatabaseManager, transaction: dict) -> dict:
         "fraud_probability": result["fraud_probability"],
         "risk_level": result["risk_level"],
         "explanation": result["explanation"],
+        "rule_violations": result.get("rule_violations", []),
+        "contributions": result.get("contributions", {}),
     }
 
     # Store transaction
